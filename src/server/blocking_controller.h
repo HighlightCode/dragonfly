@@ -45,6 +45,9 @@ class BlockingController {
   // Mark given key as awakened. Called by commands mutating this key.
   void Awaken(DbIndex db_index, std::string_view key);
 
+  // Mark all watched keys in a specific db as awakened.
+  void AwakenWatched(DbIndex db_index);
+
   // Notify transactions of awakened keys
   void NotifyPending();
 
@@ -68,5 +71,7 @@ class BlockingController {
   // Transactions that got awakened with NotifySuspended
   // TODO: Used only for one DCHECK
   absl::flat_hash_set<Transaction*> awakened_transactions_;
+
+  bool notify_pending_reentrancy_guard_ = false;
 };
 }  // namespace dfly

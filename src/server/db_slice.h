@@ -29,6 +29,8 @@ class SlotRanges;
 class SlotSet;
 }  // namespace cluster
 
+class BlockingController;
+
 using facade::OpResult;
 
 struct DbStats : public DbTableStats {
@@ -244,7 +246,7 @@ class DbSlice {
     int32_t expire_options = 0;  // ExpireFlags
   };
 
-  DbSlice(uint32_t index, bool cache_mode, EngineShard* owner);
+  DbSlice(uint32_t index, bool cache_mode, EngineShard* owner, Namespace* ns);
   ~DbSlice();
 
   // Returns statistics for the whole db slice. A bit heavy operation.
@@ -546,6 +548,10 @@ class DbSlice {
   void PreUpdateBlocking(DbIndex db_ind, const Iterator& it);
   void PostUpdate(DbIndex db_ind, std::string_view key);
 
+  // Queues the awakened keys of `bc` for dispatch at a preemption-safe point, unless a
+  // transaction is running - in that case it dispatches them when it concludes.
+  void NotifyOrDeferBlockingWake(BlockingController* bc);
+
   OpResult<ItAndUpdater> AddOrUpdateInternal(const Context& cntx, std::string_view key,
                                              PrimeValue obj, uint64_t expire_at_ms,
                                              bool force_update);
@@ -605,6 +611,7 @@ class DbSlice {
   uint8_t cache_mode_ : 1;
 
   EngineShard* owner_;
+  Namespace* ns_;
 
   bool expire_allowed_ = true;
 
