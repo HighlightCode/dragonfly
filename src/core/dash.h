@@ -421,6 +421,8 @@ class DashTable : public detail::DashTableBase {
     return stash_unloaded_;
   }
 
+  template <typename Cb> Cursor VisitSegment(Cursor cursor, Cb cb);
+
  private:
   enum class InsertMode {
     kInsertIfNotFound,
@@ -1198,6 +1200,24 @@ auto DashTable<_Key, _Value, Policy>::Traverse(Cursor curs, Cb&& cb) -> Cursor {
   } while (!fetched);
 
   return Cursor{global_depth_, sid, bid};
+}
+
+template <typename _Key, typename _Value, typename Policy>
+template <typename Cb>
+auto DashTable<_Key, _Value, Policy>::VisitSegment(Cursor cursor, Cb cb) -> Cursor {
+  uint32_t sid = cursor.segment_id(global_depth_);
+  if (sid >= segment_.size())
+    return Cursor::end();
+
+  auto* seg = segment_[sid];
+  sid = seg->segment_id();
+
+  Cursor next = Cursor::end();
+  if (const auto nid = NextSeg(sid); nid < segment_.size())
+    next = Cursor{global_depth_, static_cast<uint32_t>(nid), 0};
+
+  cb(sid, seg);
+  return next;
 }
 
 template <typename _Key, typename _Value, typename Policy>
