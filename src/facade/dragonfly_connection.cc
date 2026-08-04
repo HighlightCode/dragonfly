@@ -163,7 +163,8 @@ ABSL_FLAG(uint32_t, iobuf_shrink_min_idle_sec, 30,
           "Minimum receive-idle time (in seconds) before a client input buffer may shrink.");
 
 ABSL_FLAG(uint32_t, iobuf_shrink_interval_sec, 30,
-          "Minimum time between client input-buffer resize (growth/shrink) operations.");
+          "Minimum time between client input-buffer shrink operations; growth restarts the "
+          "shrink interval.");
 
 ABSL_RETIRED_FLAG(bool, experimental_io_loop_v2, true, "retired.");
 
@@ -1667,7 +1668,7 @@ Connection::ParserStatus Connection::ParseRedis(base::IoBuf& io_buf, uint32_t ma
       const uint64_t io_buf_generation = io_buf.generation();
       ThisFiber::Yield();
       fiber_park_spot_ = FiberParkSpot::kNone;
-      // io_buf_ should not be modified during the Recv().
+      // io_buf_ backing storage should not be replaced while read_buffer is retained.
       DCHECK_EQ(io_buf.generation(), io_buf_generation);
 
       // Note:
@@ -3664,6 +3665,8 @@ bool Connection::ShrinkIoBufTo(size_t target_capacity, string_view capacity_chan
   const size_t previous_capacity = io_buf_.Capacity();
   {
     ReadBufTracker tracker(io_buf_, id_, capacity_change_reason);
+    // Callers pass a smaller power-of-two target that preserves unread input; failure is a real
+    // bug, not an optional-shrink outcome, so retain this check in release builds.
     CHECK(io_buf_.ShrinkTo(target_capacity));
   }
   UpdateIoBufCapacityChange(previous_capacity);
@@ -3992,6 +3995,7 @@ void ResetStats() {
   cstats.io_read_bytes = 0;
   cstats.proactor_reads = 0;
   cstats.proactor_parse = 0;
+  cstats.iobuf_capacity_change_cnt = 0;
 
   tl_facade_stats->reply_stats = {};
   if (io_req_size_hist)
