@@ -1190,7 +1190,7 @@ TEST_F(QListZstdTest, CompressAfterLoad) {
   }
   EXPECT_EQ(compressed_before, 0u);
 
-  ql.set_compr_threshold(1);
+  ql.set_compr_policy({.min_size = 1, .enabled = true});
   auto initial_compressions = QList::stats.zstd_dict_compressions;
   ql.CompressAfterLoad();
 
@@ -1219,7 +1219,7 @@ TEST_F(QListZstdTest, CompressAfterLoad) {
 
 TEST_F(QListZstdTest, CompressAfterLoadChunkedAppend) {
   QList ql(-1, 0);
-  ql.set_compr_threshold(1);
+  ql.set_compr_policy({.min_size = 1, .enabled = true});
 
   constexpr unsigned kEntriesPerNode = 30;
   for (unsigned n = 0; n < 4; ++n) {
@@ -1277,7 +1277,7 @@ TEST_F(QListZstdTest, CompressAfterLoadPlainNode) {
   const QList::Node* plain_node = ql.Head()->next;
   ASSERT_EQ(plain_node->container, QUICKLIST_NODE_CONTAINER_PLAIN);
 
-  ql.set_compr_threshold(1);
+  ql.set_compr_policy({.min_size = 1, .enabled = true});
   ql.CompressAfterLoad();
 
   // The interior plain node is now ZSTD-compressed.
@@ -1305,8 +1305,9 @@ TEST_F(QListZstdTest, CompressAfterLoadDisabled) {
 }
 
 TEST_F(QListZstdTest, CompressAndReadAll) {
-  QList ql(-1, 0);            // 4KB nodes, no depth-based compression (ZSTD dict replaces it)
-  ql.set_compr_threshold(1);  // threshold 1 = trigger as soon as possible
+  QList ql(-1, 0);  // 4KB nodes, no depth-based compression (ZSTD dict replaces it)
+  ql.set_compr_policy(
+      {.min_size = 1, .enabled = true});  // threshold 1 = trigger as soon as possible
   PopulateWithCeleryData(ql, 500);
 
   size_t after = ql.MallocUsed(true);
@@ -1328,7 +1329,7 @@ TEST_F(QListZstdTest, CompressAndReadAll) {
 
 TEST_F(QListZstdTest, PushAfterCompress) {
   QList ql(-1, 0);
-  ql.set_compr_threshold(1);
+  ql.set_compr_policy({.min_size = 1, .enabled = true});
   PopulateWithCeleryData(ql, 500);
 
   // Push new entries after compression.
@@ -1348,7 +1349,7 @@ TEST_F(QListZstdTest, PushAfterCompress) {
 
 TEST_F(QListZstdTest, PopAfterCompress) {
   QList ql(-1, 0);
-  ql.set_compr_threshold(1);
+  ql.set_compr_policy({.min_size = 1, .enabled = true});
   PopulateWithCeleryData(ql, 500);
 
   EXPECT_EQ(ql.Size(), 500u);
@@ -1362,7 +1363,7 @@ TEST_F(QListZstdTest, PopAfterCompress) {
 
 TEST_F(QListZstdTest, PopDrainsHeadNode) {
   QList ql(-1, 0);  // fill=-1 means 4KB nodes
-  ql.set_compr_threshold(1);
+  ql.set_compr_policy({.min_size = 1, .enabled = true});
   PopulateWithCeleryData(ql, 500);
 
   unsigned initial_nodes = ql.node_count();
@@ -1389,7 +1390,7 @@ TEST_F(QListZstdTest, SmallListSkipped) {
 
   size_t size = ql.MallocUsed(true);
   // Set threshold higher than the list size — dict should not be trained.
-  ql.set_compr_threshold(size + 1000);
+  ql.set_compr_policy({.min_size = uint32_t(size + 1000), .enabled = true});
 
   auto initial_compressions = QList::stats.zstd_dict_compressions;
   PopulateWithCeleryData(ql, 5);
@@ -1398,7 +1399,7 @@ TEST_F(QListZstdTest, SmallListSkipped) {
 
 TEST_F(QListZstdTest, IndexAccess) {
   QList ql(-1, 0);
-  ql.set_compr_threshold(1);
+  ql.set_compr_policy({.min_size = 1, .enabled = true});
   PopulateWithCeleryData(ql, 500);
 
   // Access by positive index.
@@ -1418,7 +1419,7 @@ TEST_F(QListZstdTest, IndexAccess) {
 TEST_F(QListZstdTest, IncrementalCompression) {
   // Verify that a newly interior node gets compressed incrementally.
   QList ql(-1, 0);
-  ql.set_compr_threshold(1);
+  ql.set_compr_policy({.min_size = 1, .enabled = true});
   PopulateWithCeleryData(ql, 500);
 
   // Head and tail must be uncompressed.
@@ -1457,13 +1458,13 @@ TEST_F(QListZstdTest, IncrementalCompression) {
 TEST_F(QListZstdTest, IncompressibleDataNotCompressed) {
   // Train a dictionary with compressible Celery data.
   QList ql_train(-1, 0);
-  ql_train.set_compr_threshold(1);
+  ql_train.set_compr_policy({.min_size = 1, .enabled = true});
   PopulateWithCeleryData(ql_train, 500);
 
   // Dictionary is now trained in thread-local state.
   // Create a new list with random (incompressible) data.
   QList ql(-1, 0);
-  ql.set_compr_threshold(1);
+  ql.set_compr_policy({.min_size = 1, .enabled = true});
 
   auto initial_bad = QList::stats.bad_compression_attempts;
   auto initial_attempts = QList::stats.compression_attempts;
@@ -1501,7 +1502,7 @@ TEST_F(QListZstdTest, StatsTracking) {
   auto initial_bad = QList::stats.bad_compression_attempts;
 
   QList ql(-1, 0);
-  ql.set_compr_threshold(1);
+  ql.set_compr_policy({.min_size = 1, .enabled = true});
   PopulateWithCeleryData(ql, 500);
 
   uint64_t attempts = QList::stats.compression_attempts - initial_attempts;
@@ -1513,6 +1514,166 @@ TEST_F(QListZstdTest, StatsTracking) {
   EXPECT_EQ(attempts, successes + bad);
   // For Celery data, compression should be very effective.
   EXPECT_GT(successes, bad);
+}
+
+TEST_F(QListZstdTest, PolicyFlagParsing) {
+  QList::ComprPolicy policy;
+  string err;
+
+  ASSERT_TRUE(AbslParseFlag("", &policy, &err)) << err;
+  EXPECT_FALSE(policy.enabled);
+
+  // A bare number is the deprecated --list_compress_dict_threshold syntax.
+  ASSERT_TRUE(AbslParseFlag("4096", &policy, &err)) << err;
+  EXPECT_TRUE(policy.enabled);
+  EXPECT_EQ(policy.min_size, 4096u);
+  EXPECT_EQ(policy.edge_depth, 1u);
+
+  ASSERT_TRUE(AbslParseFlag("min_size=8192, edge_depth=3", &policy, &err)) << err;
+  EXPECT_TRUE(policy.enabled);
+  EXPECT_EQ(policy.min_size, 8192u);
+  EXPECT_EQ(policy.edge_depth, 3u);
+  EXPECT_EQ(AbslUnparseFlag(policy), "min_size=8192,edge_depth=3");
+
+  // Compress everything, no size requirement.
+  ASSERT_TRUE(AbslParseFlag("edge_depth=0", &policy, &err)) << err;
+  EXPECT_TRUE(policy.enabled);
+  EXPECT_EQ(policy.min_size, 0u);
+  EXPECT_EQ(policy.edge_depth, 0u);
+
+  EXPECT_FALSE(AbslParseFlag("min_size", &policy, &err));
+  EXPECT_FALSE(AbslParseFlag("min_size=abc", &policy, &err));
+  EXPECT_FALSE(AbslParseFlag("edge_depth=256", &policy, &err));
+  EXPECT_FALSE(AbslParseFlag("foo=1", &policy, &err));
+}
+
+TEST_F(QListZstdTest, CompressEdges) {
+  // edge_depth=0 compresses every node, the head and the tail included.
+  QList ql(-1, 0);
+  ql.set_compr_policy({.min_size = 1, .edge_depth = 0, .enabled = true});
+
+  constexpr unsigned kNodes = 10;
+  constexpr unsigned kEntriesPerNode = 30;
+  for (unsigned n = 0; n < kNodes; ++n) {
+    ql.AppendListpack(BuildCeleryListpack(kEntriesPerNode, 100000 + n * kEntriesPerNode));
+  }
+  ql.CompressAfterLoad();
+
+  for (const QList::Node* node = ql.Head(); node; node = node->next) {
+    EXPECT_EQ(node->encoding, QLIST_NODE_ENCODING_ZSTD);
+  }
+
+  // Everything is still readable.
+  unsigned count = 0;
+  ql.Iterate([&](const QList::Entry& e) { return ++count, true; }, 0, -1);
+  EXPECT_EQ(count, kNodes * kEntriesPerNode);
+}
+
+TEST_F(QListZstdTest, PushPopWithCompressedEdges) {
+  QList ql(-1, 0);
+  ql.set_compr_policy({.min_size = 1, .edge_depth = 0, .enabled = true});
+
+  constexpr unsigned kNodes = 6;
+  constexpr unsigned kEntriesPerNode = 30;
+  for (unsigned n = 0; n < kNodes; ++n) {
+    ql.AppendListpack(BuildCeleryListpack(kEntriesPerNode, 100000 + n * kEntriesPerNode));
+  }
+  ql.CompressAfterLoad();
+  ASSERT_EQ(ql.Head()->encoding, QLIST_NODE_ENCODING_ZSTD);
+  ASSERT_EQ(ql.Tail()->encoding, QLIST_NODE_ENCODING_ZSTD);
+
+  // Pushing into a compressed edge decompresses it in place and keeps it raw afterwards.
+  ql.Push("new_head_entry", QList::HEAD);
+  ql.Push("new_tail_entry", QList::TAIL);
+  EXPECT_EQ(ql.Head()->encoding, QUICKLIST_NODE_ENCODING_RAW);
+  EXPECT_EQ(ql.Tail()->encoding, QUICKLIST_NODE_ENCODING_RAW);
+  EXPECT_EQ(ql.Size(), kNodes * kEntriesPerNode + 2);
+
+  auto it = ql.GetIterator(QList::HEAD);
+  ASSERT_TRUE(it.Valid());
+  EXPECT_EQ(it.Get().view(), "new_head_entry");
+  it = ql.GetIterator(QList::TAIL);
+  ASSERT_TRUE(it.Valid());
+  EXPECT_EQ(it.Get().view(), "new_tail_entry");
+
+  EXPECT_EQ(ql.Pop(QList::HEAD), "new_head_entry");
+  EXPECT_EQ(ql.Pop(QList::TAIL), "new_tail_entry");
+
+  // Popping a compressed edge works as well: re-compress and drain both ends.
+  ql.CompressAfterLoad();
+  ASSERT_EQ(ql.Head()->encoding, QLIST_NODE_ENCODING_ZSTD);
+  ASSERT_EQ(ql.Tail()->encoding, QLIST_NODE_ENCODING_ZSTD);
+  while (ql.Size() > 0) {
+    EXPECT_FALSE(ql.Pop(QList::HEAD).empty());
+    if (ql.Size() > 0) {
+      EXPECT_FALSE(ql.Pop(QList::TAIL).empty());
+    }
+  }
+  EXPECT_EQ(ql.node_count(), 0u);
+}
+
+TEST_F(QListZstdTest, EdgeDepthTwo) {
+  QList ql(-1, 0);
+  ql.set_compr_policy({.min_size = 1, .edge_depth = 2, .enabled = true});
+
+  constexpr unsigned kNodes = 8;
+  constexpr unsigned kEntriesPerNode = 30;
+  for (unsigned n = 0; n < kNodes; ++n) {
+    ql.AppendListpack(BuildCeleryListpack(kEntriesPerNode, 100000 + n * kEntriesPerNode));
+  }
+  ql.CompressAfterLoad();
+  ASSERT_EQ(ql.node_count(), kNodes);
+
+  unsigned id = 0;
+  for (const QList::Node* node = ql.Head(); node; node = node->next, ++id) {
+    bool is_edge = id < 2 || id + 2 >= kNodes;
+    EXPECT_EQ(node->IsCompressed(), !is_edge) << "node " << id;
+  }
+
+  // Deleting the head promotes a compressed node into the edge zone, which must be decompressed.
+  ASSERT_TRUE(ql.Erase(0, kEntriesPerNode));
+  ASSERT_EQ(ql.node_count(), kNodes - 1);
+  EXPECT_FALSE(ql.Head()->IsCompressed());
+  EXPECT_FALSE(ql.Head()->next->IsCompressed());
+}
+
+TEST_F(QListZstdTest, NoSizeGate) {
+  // min_size=0 compresses as soon as the list has more than one node.
+  QList ql(-1, 0);
+  ql.set_compr_policy({.min_size = 0, .enabled = true});
+
+  ql.AppendListpack(BuildCeleryListpack(30, 100000));
+  ql.CompressAfterLoad();
+  EXPECT_EQ(ql.node_count(), 1u);
+  EXPECT_FALSE(ql.Head()->IsCompressed());  // single node lists are left raw.
+
+  for (unsigned n = 1; n < 4; ++n) {
+    ql.AppendListpack(BuildCeleryListpack(30, 100000 + n * 30));
+  }
+  ql.CompressAfterLoad();
+  EXPECT_TRUE(ql.Head()->next->IsCompressed());
+}
+
+TEST_F(QListZstdTest, MallocSizeAfterNodeDeletion) {
+  QList ql(-1, 0);
+  ql.set_compr_policy({.min_size = 1, .edge_depth = 0, .enabled = true});
+
+  constexpr unsigned kNodes = 10;
+  constexpr unsigned kEntriesPerNode = 30;
+  for (unsigned n = 0; n < kNodes; ++n) {
+    ql.AppendListpack(BuildCeleryListpack(kEntriesPerNode, 100000 + n * kEntriesPerNode));
+  }
+  ql.CompressAfterLoad();
+  EXPECT_LE(ql.MallocUsed(false), ql.MallocUsed(true));
+
+  // Erase whole compressed nodes - the tracked size must follow the actual allocations and never
+  // underflow.
+  ASSERT_TRUE(ql.Erase(0, 3 * kEntriesPerNode));
+  ASSERT_EQ(ql.node_count(), kNodes - 3);
+
+  // The tracked size ignores per-allocation overhead, so it must stay below the measured one -
+  // and above all must not underflow.
+  EXPECT_LE(ql.MallocUsed(false), ql.MallocUsed(true));
 }
 
 }  // namespace dfly
