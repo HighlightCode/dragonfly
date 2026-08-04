@@ -1595,6 +1595,55 @@ TEST_F(DashTest, SplitBug) {
   EXPECT_EQ(746, table.size());
 }
 
+TEST_F(DashTest, VisitSegmentOnce) {
+  for (uint64_t i = 0; i < 4000; ++i) {
+    dt_.Insert(i, i);
+  }
+
+  ASSERT_EQ(dt_.depth(), 3);
+  ASSERT_EQ(dt_.unique_segments(), 8);
+
+  // create aliases so that visiting over them is exercised
+  for (uint64_t i = 200; i < 4000; ++i) {
+    dt_.Erase(i);
+  }
+
+  ASSERT_EQ(dt_.GetSegment(0)->local_depth(), 3);
+  ASSERT_EQ(dt_.GetSegment(1)->local_depth(), 3);
+
+  ASSERT_TRUE(dt_.Merge(0, 1).merged);
+
+  ASSERT_EQ(dt_.depth(), 3);
+  ASSERT_EQ(dt_.GetSegmentCount(), 8);
+  ASSERT_EQ(dt_.unique_segments(), 7);
+
+  ASSERT_EQ(dt_.GetSegment(0), dt_.GetSegment(1));
+  ASSERT_EQ(dt_.GetSegment(0)->segment_id(), 0);
+
+  ASSERT_EQ(dt_.GetSegment(0)->local_depth(), 2);
+
+  auto calls = 0;
+  std::unordered_set<Dash64::Segment_t*> visited;
+
+  Dash64::Cursor cursor;
+  do {
+    const auto before = calls;
+    cursor = dt_.VisitSegment(cursor, [&](size_t sid, auto* segment) {
+      ++calls;
+      EXPECT_EQ(sid, segment->segment_id());
+      EXPECT_EQ(segment, dt_.GetSegment(sid));
+      EXPECT_TRUE(visited.insert(segment).second);
+    });
+    EXPECT_EQ(calls, before + 1);
+
+  } while (cursor);
+
+  // each segment visited exactly once
+  EXPECT_EQ(calls, dt_.unique_segments());
+  EXPECT_EQ(visited.size(), dt_.unique_segments());
+  EXPECT_FALSE(cursor);
+}
+
 /**
  ______     _      _   _               _______        _
 |  ____|   (_)    | | (_)             |__   __|      | |
