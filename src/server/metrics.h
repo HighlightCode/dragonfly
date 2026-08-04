@@ -121,6 +121,9 @@ struct Metrics {
 
   absl::flat_hash_map<std::string, uint64_t> connections_lib_name_ver_map;
 
+  // Current input-buffer capacity keyed by proactor ID. This is a gauge, not a counter.
+  std::vector<std::pair<unsigned, size_t>> conn_io_buf_capacity_by_proactor;
+
   struct ReplicaInfo {
     ReplicaSummary summary;
 
