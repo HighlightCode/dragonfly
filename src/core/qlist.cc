@@ -695,13 +695,15 @@ void QList::Iterate(IterateFunc cb, long start, long end) const {
 
   if (end < 0 || end >= long(Size()))
     end = Size() - 1;
-  Iterator it = GetIterator(start);
-  if (it.Valid()) {
+  // A partial traversal (`start > end`, or a callback that stopped early) stops on a node that the
+  // read decompressed. The cursor restores it, so that a read does not change our footprint.
+  ReadCursor cur = GetReadCursor(start);
+  if (cur.Valid()) {
     do {
-      if (start > end || !cb(it.Get()))
+      if (start > end || !cb(cur.Get()))
         break;
       start++;
-    } while (it.Next());
+    } while (cur.Next());
   }
 }
 
@@ -1364,6 +1366,17 @@ auto QList::GetIterator(long idx) const -> Iterator {
   InitIteratorEntry(&iter);
 
   return iter;
+}
+
+void QList::EndRead(const Iterator& it) const {
+  if (it.current_ == nullptr)
+    return;
+
+  // At most a single node carries the recompress flag at any time: advancing the iterator off a
+  // node already recompresses it (see Iterator::Next), so only the node we stopped on can be
+  // pending. RecompressNode is a no-op for nodes that were not decompressed by a read.
+  QList* self = const_cast<QList*>(this);
+  self->malloc_size_ += self->RecompressNode(it.current_);
 }
 
 auto QList::Erase(Iterator it) -> Iterator {

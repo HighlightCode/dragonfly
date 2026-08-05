@@ -10,6 +10,7 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <utility>
 
 #include "core/collection_entry.h"
 #include "server/common_types.h"
@@ -124,6 +125,68 @@ class QList {
     friend class QList;
   };
 
+  // A read-only cursor over the list. A read has to decompress the node it touches, and the
+  // cursor restores the list's memory footprint once it goes out of scope, so that a read-only
+  // command leaves MallocUsed() unchanged.
+  //
+  // It is deliberately move-only and cannot be converted to an Iterator: releasing the node from
+  // Iterator's own destructor would be a use-after-free, because Erase()/Insert() take an
+  // Iterator by value and leave the caller's copy pointing into the node the parameter copy
+  // would recompress. Mutating methods keep taking a plain Iterator - they recompress the node
+  // themselves.
+  class ReadCursor {
+   public:
+    ReadCursor() = default;
+    ~ReadCursor() {
+      Release();
+    }
+
+    ReadCursor(ReadCursor&& other) noexcept : owner_(other.owner_), it_(other.it_) {
+      other.owner_ = nullptr;
+    }
+
+    ReadCursor& operator=(ReadCursor&& other) noexcept {
+      if (this != &other) {
+        Release();
+        owner_ = std::exchange(other.owner_, nullptr);
+        it_ = other.it_;
+      }
+      return *this;
+    }
+
+    ReadCursor(const ReadCursor&) = delete;
+    ReadCursor& operator=(const ReadCursor&) = delete;
+
+    // Returns true if the cursor is valid (points to an element).
+    bool Valid() const {
+      return it_.Valid();
+    }
+
+    Entry Get() const {
+      return it_.Get();
+    }
+
+    // Advances to the next/prev element. Returns false if no more entries.
+    bool Next() {
+      return it_.Next();
+    }
+
+   private:
+    ReadCursor(const QList* owner, Iterator it) : owner_(owner), it_(it) {
+    }
+
+    void Release() {
+      if (owner_) {
+        std::exchange(owner_, nullptr)->EndRead(it_);
+      }
+    }
+
+    const QList* owner_ = nullptr;
+    Iterator it_;
+
+    friend class QList;
+  };
+
   using IterateFunc = absl::FunctionRef<bool(Entry)>;
   enum InsertOpt : uint8_t { BEFORE, AFTER };
 
@@ -225,6 +288,16 @@ class QList {
   // negative index - means counting from the tail.
   // result.Valid() is true if the index is within range.
   Iterator GetIterator(long idx) const;
+
+  // Read-only counterparts of GetIterator(). Prefer these for reads: the returned cursor keeps
+  // the read footprint-neutral on its own (see ReadCursor).
+  ReadCursor GetReadCursor(Where where) const {
+    return ReadCursor{this, GetIterator(where)};
+  }
+
+  ReadCursor GetReadCursor(long idx) const {
+    return ReadCursor{this, GetIterator(idx)};
+  }
 
   uint32_t node_count() const {
     return len_;
@@ -380,6 +453,11 @@ class QList {
 
   // Prepares the node for read access.
   void AccessForReads(bool recompress, Node* node);
+
+  // Ends a read: recompresses the node `it` points into if the read decompressed it temporarily.
+  // Called by ReadCursor when it goes out of scope, and at the end of Iterate(). Neither `it` nor
+  // any Entry obtained from it may be used afterwards.
+  void EndRead(const Iterator& it) const;
 
   Node* MergeNodes(Node* node);
 
